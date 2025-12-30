@@ -9,6 +9,22 @@ data class Word(
 )
 
 fun main() {
+    val dictionary = loadDictionary()
+
+    while (true) {
+        println("Меню:\n1 – Учить слова\n2 – Статистика\n0 – Выход\n Введите номер пункта меню:")
+        val userAnswer = readln()
+
+        when (userAnswer) {
+            "0" -> return
+            "1" -> println("Выбран пункт \"Учить слова\"")
+            "2" -> println("Выбран пункт \"Статистика\"")
+            else -> println("Выбран не правильный пункт. Введите число 1, 2 или 0.")
+        }
+    }
+}
+
+fun loadDictionary(): MutableList<Word> {
     val dictionaryFile = File("words.txt")
     val dictionary = mutableListOf<Word>()
 
@@ -19,5 +35,5 @@ fun main() {
         dictionary.add(word)
     }
 
-    dictionary.forEach { println(it) }
+    return dictionary
 }

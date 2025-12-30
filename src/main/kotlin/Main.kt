@@ -15,8 +15,7 @@ fun main() {
     val dictionaryLines = dictionaryFile.readLines()
     dictionaryLines.forEach {
         val line = it.split("|")
-        val word = Word(original = line[0], translate = line[1])
-        word.correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: word.correctAnswersCount
+        val word = Word(original = line[0], translate = line[1], correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0)
         dictionary.add(word)
     }
 

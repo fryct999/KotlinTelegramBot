@@ -17,7 +17,27 @@ fun main() {
 
         when (userAnswer) {
             "0" -> return
-            "1" -> println("Выбран пункт \"Учить слова\"")
+            "1" -> {
+                val notLearnedList = dictionary.filter { it.correctAnswersCount < 3 }
+
+                if (notLearnedList.isEmpty()) {
+                    println("Все слова в словаре выучены.")
+                    continue
+                }
+
+                while (notLearnedList.isNotEmpty()) {
+                    val questionWords = notLearnedList.shuffled().take(4)
+                    val correctAnswer = questionWords.first().original
+
+                    println("\n $correctAnswer:")
+                    questionWords.shuffled().forEachIndexed { id, it ->
+                        println("${id + 1}: ${it.translate}")
+                    }
+
+                    val userAnswer = readln()
+                }
+            }
+
             "2" -> {
                 val totalCount = dictionary.size
                 val learnedCount = dictionary.filter { it.correctAnswersCount >= 3 }.size
@@ -25,6 +45,7 @@ fun main() {
 
                 println("Выучено $learnedCount из $totalCount слов | $learnedPercent%\n")
             }
+
             else -> println("Выбран не правильный пункт. Введите число 1, 2 или 0.")
         }
     }
@@ -37,7 +58,8 @@ fun loadDictionary(): MutableList<Word> {
     val dictionaryLines = dictionaryFile.readLines()
     dictionaryLines.forEach {
         val line = it.split("|")
-        val word = Word(original = line[0], translate = line[1], correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0)
+        val word =
+            Word(original = line[0], translate = line[1], correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0)
         dictionary.add(word)
     }
 

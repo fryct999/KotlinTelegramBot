@@ -18,7 +18,13 @@ fun main() {
         when (userAnswer) {
             "0" -> return
             "1" -> println("Выбран пункт \"Учить слова\"")
-            "2" -> println("Выбран пункт \"Статистика\"")
+            "2" -> {
+                val totalCount = dictionary.size
+                val learnedCount = dictionary.filter { it.correctAnswersCount >= 3 }.size
+                val learnedPercent = ((learnedCount.toDouble() / totalCount) * 100).toInt()
+
+                println("Выучено $learnedCount из $totalCount слов | $learnedPercent%\n")
+            }
             else -> println("Выбран не правильный пункт. Введите число 1, 2 или 0.")
         }
     }

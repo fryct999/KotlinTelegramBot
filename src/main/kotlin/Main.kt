@@ -18,7 +18,7 @@ fun main() {
         when (userAnswer) {
             "0" -> return
             "1" -> {
-                val notLearnedList = dictionary.filter { it.correctAnswersCount < 3 }
+                var notLearnedList = dictionary.filter { it.correctAnswersCount < 3 }
 
                 if (notLearnedList.isEmpty()) {
                     println("Все слова в словаре выучены.")
@@ -27,14 +27,31 @@ fun main() {
 
                 while (notLearnedList.isNotEmpty()) {
                     val questionWords = notLearnedList.shuffled().take(4)
-                    val correctAnswer = questionWords.first().original
+                    val correctAnswer = questionWords.first()
+                    var correctAnswerId = 0
 
-                    println("\n $correctAnswer:")
+                    println("\n ${correctAnswer.original}:")
                     questionWords.shuffled().forEachIndexed { id, it ->
-                        println("${id + 1}: ${it.translate}")
+                        val index = id + 1
+                        println("$index: ${it.translate}")
+                        correctAnswerId = if (it.original == correctAnswer.original) index else correctAnswerId
+                    }
+                    println("---------- \n0 - Меню")
+
+                    val userAnswerInput = readln().toIntOrNull()
+
+                    when (userAnswerInput) {
+                        correctAnswerId -> {
+                            println("Правильно!")
+                            correctAnswer.correctAnswersCount++
+                            saveDictionary(dictionary)
+                        }
+
+                        0 -> break
+                        else -> println("Неправильно! ${correctAnswer.original} – это ${correctAnswer.translate}")
                     }
 
-                    val userAnswer = readln()
+                    notLearnedList = dictionary.filter { it.correctAnswersCount < 3 }
                 }
             }
 
@@ -64,4 +81,9 @@ fun loadDictionary(): MutableList<Word> {
     }
 
     return dictionary
+}
+
+fun saveDictionary(dictionary: MutableList<Word>) {
+    val dictionaryFile = File("words.txt")
+    dictionaryFile.writeText(dictionary.joinToString(separator = "") { "${it.original}|${it.translate}|${it.correctAnswersCount}\n" })
 }

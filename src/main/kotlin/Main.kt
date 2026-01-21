@@ -33,7 +33,7 @@ fun main() {
 
                     println(question.asConsoleString())
 
-                    val userAnswerInput = readln().toIntOrNull()
+                    val userAnswerInput = readln().toIntOrNull() ?: continue
                     if (userAnswerInput == 0) break
 
                     if (trainer.checkAnswer(userAnswerInput?.minus(1)))

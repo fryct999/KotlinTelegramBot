@@ -16,12 +16,14 @@ fun main(args: Array<String>) {
         val updates: String = getUpdates(botToken, updateId)
         println(updates)
 
-        val startUpdateId = updates.lastIndexOf("update_id")
-        val endUpdateId = updates.lastIndexOf(",\n\"message\"")
-        if (startUpdateId == -1 || endUpdateId == -1) continue
+        val updateIdString = getUpdateValue("update_id", updates)
+        if (updateIdString.isEmpty()) continue
 
-        val updateIdString = updates.substring(startUpdateId + 11, endUpdateId)
         updateId = updateIdString.toInt() + 1
+        println("Old id - ${updateId - 1}, new id - $updateId")
+
+        val msg = getUpdateValue("text", updates)
+        println("Text - $msg")
     }
 }
 
@@ -32,4 +34,24 @@ fun getUpdates(botToken: String, updateId: Int): String {
     val response: HttpResponse<String> = client.send(request, HttpResponse.BodyHandlers.ofString())
 
     return response.body()
+}
+
+fun getUpdateValue(key: String, updates: String): String {
+    when (key) {
+        "text" -> {
+            val regex = "\"$key\":\"(.+?)\"".toRegex()
+            val text = regex.find(updates)?.groups?.get(1)?.value ?: ""
+
+            return text
+        }
+
+        "update_id" -> {
+            val regex = "\"$key\":(\\d+)".toRegex()
+            val id = regex.find(updates)?.groups?.get(1)?.value ?: ""
+
+            return id
+        }
+    }
+
+    return ""
 }

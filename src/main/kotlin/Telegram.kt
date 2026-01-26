@@ -1,16 +1,18 @@
 ﻿package fryct999
 
 import java.net.URI
+import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.StandardCharsets
 
 class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
+    private val client = HttpClient.newBuilder().build()
 
     fun getUpdates(updateId: Int): String {
         val urlGetUpdates = "$telegramBaseUrl/bot$token/getUpdates?offset=$updateId"
-        val client: HttpClient = HttpClient.newBuilder().build()
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlGetUpdates)).build()
         val response: HttpResponse<String> = client.send(request, HttpResponse.BodyHandlers.ofString())
 
@@ -21,23 +23,17 @@ class TelegramBotService(private val token: String) {
         when (key) {
             "text" -> {
                 val regex = "\"$key\":\"(.+?)\"".toRegex()
-                val text = regex.find(updates)?.groups?.get(1)?.value ?: ""
-
-                return text
+                return regex.find(updates)?.groups?.get(1)?.value ?: ""
             }
 
             "update_id" -> {
                 val regex = "\"$key\":(\\d+)".toRegex()
-                val id = regex.find(updates)?.groups?.get(1)?.value ?: ""
-
-                return id
+                return regex.find(updates)?.groups?.get(1)?.value ?: ""
             }
 
             "chat" -> {
                 val regex = "\"$key\":\\{\"id\":(\\d+)".toRegex()
-                val id = regex.find(updates)?.groups?.get(1)?.value ?: ""
-
-                return id
+                return regex.find(updates)?.groups?.get(1)?.value ?: ""
             }
         }
 
@@ -47,8 +43,8 @@ class TelegramBotService(private val token: String) {
     fun sendMessage(chatId: String, text: String) {
         if (text.isEmpty() || text.length >= 4096) return
 
-        val urlSendMsg = "$telegramBaseUrl/bot$token/sendMessage?chat_id=$chatId&text=$text"
-        val client: HttpClient = HttpClient.newBuilder().build()
+        val encodedMessage = URLEncoder.encode(text, StandardCharsets.UTF_8)
+        val urlSendMsg = "$telegramBaseUrl/bot$token/sendMessage?chat_id=$chatId&text=$encodedMessage"
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMsg)).build()
         client.send(request, HttpResponse.BodyHandlers.ofString())
     }
@@ -77,5 +73,6 @@ fun main(args: Array<String>) {
 
         val chatId = telegramBotService.getUpdateValue("chat", updates)
         telegramBotService.sendMessage(chatId, "Hello!")
+        telegramBotService.sendMessage(chatId, "Ава  уу  е!")
     }
 }

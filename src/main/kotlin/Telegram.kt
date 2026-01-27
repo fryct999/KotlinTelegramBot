@@ -7,6 +7,9 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 
+const val STATISTIC_BUTTON_DATA = "statistics_click"
+const val LEARN_WORD_BUTTON_DATA = "learn_words_click"
+
 class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
     private val client = HttpClient.newBuilder().build()
@@ -106,8 +109,9 @@ fun main(args: Array<String>) {
 
         val data = telegramBotService.getUpdateValue("data", updates)
 
-        if (data.lowercase() == "statistics_click") {
-            telegramBotService.sendMessage(chatId, "Выучено 10 из 10 слов | 100%!")
+        if (data.lowercase() == STATISTIC_BUTTON_DATA) {
+            val statistic = trainer.getStatistics()
+            telegramBotService.sendMessage(chatId, "Выучено ${statistic.learnedCount} из ${statistic.totalCount} слов | ${statistic.learnedPercent}%!")
             continue
         }
     }

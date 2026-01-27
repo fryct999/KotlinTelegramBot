@@ -11,6 +11,11 @@ class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
     private val client = HttpClient.newBuilder().build()
 
+    private val textRegex = "\"text\":\"(.+?)\"".toRegex()
+    private val dataRegex = "\"data\":\"(.+?)\"".toRegex()
+    private val updateIdRegex = "\"update_id\":(\\d+)".toRegex()
+    private val chatIdRegex = "\"chat\":\\{\"id\":(\\d+)".toRegex()
+
     fun getUpdates(updateId: Int): String {
         val urlGetUpdates = "$telegramBaseUrl/bot$token/getUpdates?offset=$updateId"
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlGetUpdates)).build()
@@ -21,23 +26,13 @@ class TelegramBotService(private val token: String) {
 
     fun getUpdateValue(key: String, updates: String): String {
         when (key) {
-            "text" -> {
-                val regex = "\"$key\":\"(.+?)\"".toRegex()
-                return regex.find(updates)?.groups?.get(1)?.value ?: ""
-            }
+            "text" -> return textRegex.find(updates)?.groups?.get(1)?.value ?: ""
+            "data" -> return dataRegex.find(updates)?.groups?.get(1)?.value ?: ""
+            "update_id" -> return updateIdRegex.find(updates)?.groups?.get(1)?.value ?: ""
+            "chat_id" -> return chatIdRegex.find(updates)?.groups?.get(1)?.value ?: ""
 
-            "update_id" -> {
-                val regex = "\"$key\":(\\d+)".toRegex()
-                return regex.find(updates)?.groups?.get(1)?.value ?: ""
-            }
-
-            "chat" -> {
-                val regex = "\"$key\":\\{\"id\":(\\d+)".toRegex()
-                return regex.find(updates)?.groups?.get(1)?.value ?: ""
-            }
+            else -> return ""
         }
-
-        return ""
     }
 
     fun sendMessage(chatId: String, text: String) {
@@ -48,10 +43,42 @@ class TelegramBotService(private val token: String) {
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMsg)).build()
         client.send(request, HttpResponse.BodyHandlers.ofString())
     }
+
+    fun sendMenu(chatId: String) {
+        val sendMenuBody = """
+            {
+                "chat_id": $chatId,
+                "text": "Основное меню",
+                "reply_markup": {
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "Изучить слова",
+                                "callback_data": "learn_words_click"
+                            },
+                            {
+                                "text": "Статистика",
+                                "callback_data": "statistics_click"
+                            }
+                        ]
+                    ]
+                }
+            }
+        """.trimIndent()
+
+        val urlSendMenu = "$telegramBaseUrl/bot$token/sendMessage"
+        val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMenu))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(sendMenuBody))
+            .build()
+
+        client.send(request, HttpResponse.BodyHandlers.ofString())
+    }
 }
 
 fun main(args: Array<String>) {
     val telegramBotService = TelegramBotService(token = args[0])
+    val trainer = LearnWordsTrainer()
     var updateId = 0
 
     while (true) {
@@ -66,14 +93,22 @@ fun main(args: Array<String>) {
         updateId = updateIdString.toInt() + 1
         println("Old id - ${updateId - 1}, new id - $updateId")
 
+        val chatId = telegramBotService.getUpdateValue("chat_id", updates)
+        if (chatId.isEmpty()) continue
+
         val msg = telegramBotService.getUpdateValue("text", updates)
         println("Text - $msg")
 
-        if (msg != "Hello") continue
+        if (msg.lowercase() == "/start") {
+            telegramBotService.sendMenu(chatId)
+            continue
+        }
 
-        val chatId = telegramBotService.getUpdateValue("chat", updates)
-        if (chatId.isEmpty()) continue
+        val data = telegramBotService.getUpdateValue("data", updates)
 
-        telegramBotService.sendMessage(chatId, "Hello!")
+        if (data.lowercase() == "statistics_click") {
+            telegramBotService.sendMessage(chatId, "Выучено 10 из 10 слов | 100%!")
+            continue
+        }
     }
 }

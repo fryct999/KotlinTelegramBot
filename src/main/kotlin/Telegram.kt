@@ -72,7 +72,8 @@ fun main(args: Array<String>) {
         if (msg != "Hello") continue
 
         val chatId = telegramBotService.getUpdateValue("chat", updates)
+        if (chatId.isEmpty()) continue
+
         telegramBotService.sendMessage(chatId, "Hello!")
-        telegramBotService.sendMessage(chatId, "Ава  уу  е!")
     }
 }

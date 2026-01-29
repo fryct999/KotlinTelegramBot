@@ -7,6 +7,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 
+const val MIN_CORRECT_ANSWER = 3
+const val WORDS_PER_QUESTION = 4
 const val STATISTIC_BUTTON_DATA = "statistics_click"
 const val LEARN_WORD_BUTTON_DATA = "learn_words_click"
 const val CALLBACK_DATA_ANSWER_PREFIX = "answer_"
@@ -35,9 +37,9 @@ class TelegramBotService(private val token: String) {
             "data" -> return dataRegex.find(updates)?.groups?.get(1)?.value ?: ""
             "update_id" -> return updateIdRegex.find(updates)?.groups?.get(1)?.value ?: ""
             "chat_id" -> return chatIdRegex.find(updates)?.groups?.get(1)?.value ?: ""
-
-            else -> return ""
         }
+
+        return ""
     }
 
     fun sendMessage(chatId: Int, text: String) {
@@ -110,7 +112,7 @@ class TelegramBotService(private val token: String) {
 
 fun main(args: Array<String>) {
     val telegramBotService = TelegramBotService(token = args[0])
-    val trainer = LearnWordsTrainer()
+    val trainer = LearnWordsTrainer(MIN_CORRECT_ANSWER, WORDS_PER_QUESTION)
     var updateId = 0
 
     while (true) {
@@ -125,9 +127,7 @@ fun main(args: Array<String>) {
         updateId = updateIdString.toInt() + 1
         println("Old id - ${updateId - 1}, new id - $updateId")
 
-        val chatId = telegramBotService.getUpdateValue("chat_id", updates).toIntOrNull()
-        if (chatId == null) continue
-
+        val chatId = telegramBotService.getUpdateValue("chat_id", updates).toIntOrNull() ?: continue
         val msg = telegramBotService.getUpdateValue("text", updates)
         println("Text - $msg")
 
@@ -136,9 +136,9 @@ fun main(args: Array<String>) {
             continue
         }
 
-        val data = telegramBotService.getUpdateValue("data", updates)
+        val data = telegramBotService.getUpdateValue("data", updates).lowercase()
 
-        if (data.lowercase() == STATISTIC_BUTTON_DATA) {
+        if (data == STATISTIC_BUTTON_DATA) {
             val statistic = trainer.getStatistics()
             telegramBotService.sendMessage(
                 chatId,
@@ -147,7 +147,23 @@ fun main(args: Array<String>) {
             continue
         }
 
-        if (data.lowercase() == LEARN_WORD_BUTTON_DATA) {
+        if (data == LEARN_WORD_BUTTON_DATA) {
+            checkNextQuestionAndSend(trainer, telegramBotService, chatId)
+            continue
+        }
+
+        if (data.startsWith(CALLBACK_DATA_ANSWER_PREFIX)) {
+            val userAnswerIndex = data.substringAfter(CALLBACK_DATA_ANSWER_PREFIX).toIntOrNull() ?: continue
+            val question = trainer.question ?: continue
+
+            if (trainer.checkAnswer(userAnswerIndex))
+                telegramBotService.sendMessage(chatId, "Правильно!")
+            else
+                telegramBotService.sendMessage(
+                    chatId,
+                    "Не правильно! ${question.correctAnswer.original} - это ${question.correctAnswer.translate}."
+                )
+
             checkNextQuestionAndSend(trainer, telegramBotService, chatId)
         }
     }

@@ -10,7 +10,7 @@ fun Question.asConsoleString(): String {
 
 fun main() {
     val trainer = try {
-        LearnWordsTrainer(3, 4)
+        LearnWordsTrainer(learnedAnswerCount = 3, countOfQuestionWords = 4)
     } catch (e: Exception) {
         println("Невозможно загрузить словарь.")
         return
@@ -35,7 +35,7 @@ fun main() {
                     val userAnswerInput = readln().toIntOrNull() ?: continue
                     if (userAnswerInput == 0) break
 
-                    if (trainer.checkAnswer(userAnswerInput?.minus(1)))
+                    if (trainer.checkAnswer(userAnswerInput.minus(1)))
                         println("Правильно!")
                     else
                         println("Неправильно! ${question.correctAnswer.original} – это ${question.correctAnswer.translate}")

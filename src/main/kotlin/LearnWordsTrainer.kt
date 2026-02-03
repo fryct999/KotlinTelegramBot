@@ -21,7 +21,11 @@ data class Question(
     val correctAnswer: Word,
 )
 
-class LearnWordsTrainer(private val learnedAnswerCount: Int = 3, private val countOfQuestionWords: Int = 4) {
+class LearnWordsTrainer(
+    private val fileName: String = "words.txt",
+    private val learnedAnswerCount: Int = 3,
+    private val countOfQuestionWords: Int = 4
+) {
     var question: Question? = null
         private set
 
@@ -62,33 +66,46 @@ class LearnWordsTrainer(private val learnedAnswerCount: Int = 3, private val cou
             val correctAnswerId = it.variants.indexOf(it.correctAnswer)
             if (correctAnswerId == userAnswerIndex) {
                 it.correctAnswer.correctAnswersCount++
-                saveDictionary(dictionary)
+                saveDictionary()
                 true
             } else false
         } ?: false
     }
 
     private fun loadDictionary(): MutableList<Word> {
-        val dictionaryFile = File("words.txt")
-        val dictionary = mutableListOf<Word>()
+        try {
+            val dictionaryFile = File(fileName)
+            if (!dictionaryFile.exists()) {
+                File("words.txt").copyTo(dictionaryFile)
+            }
 
-        val dictionaryLines = dictionaryFile.readLines()
-        dictionaryLines.forEach {
-            val line = it.split("|")
-            val word =
-                Word(
-                    original = line[0],
-                    translate = line[1],
-                    correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0
-                )
-            dictionary.add(word)
+            val dictionary = mutableListOf<Word>()
+
+            val dictionaryLines = dictionaryFile.readLines()
+            dictionaryLines.forEach {
+                val line = it.split("|")
+                val word =
+                    Word(
+                        original = line[0],
+                        translate = line[1],
+                        correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0
+                    )
+                dictionary.add(word)
+            }
+
+            return dictionary
+        } catch (e: IndexOutOfBoundsException) {
+            throw IllegalStateException("Некорректный файл")
         }
-
-        return dictionary
     }
 
-    private fun saveDictionary(dictionary: MutableList<Word>) {
-        val dictionaryFile = File("words.txt")
+    private fun saveDictionary() {
+        val dictionaryFile = File(fileName)
         dictionaryFile.writeText(dictionary.joinToString(separator = "") { "${it.original}|${it.translate}|${it.correctAnswersCount}\n" })
+    }
+
+    fun resetProgress() {
+        dictionary.forEach { it.correctAnswersCount = 0 }
+        saveDictionary()
     }
 }

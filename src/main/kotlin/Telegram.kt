@@ -12,6 +12,7 @@ const val MIN_CORRECT_ANSWER = 3
 const val WORDS_PER_QUESTION = 4
 const val STATISTIC_BUTTON_DATA = "statistics_click"
 const val LEARN_WORD_BUTTON_DATA = "learn_words_click"
+const val RESET_BUTTON_DATA = "reset_click"
 const val CALLBACK_DATA_ANSWER_PREFIX = "answer_"
 
 @Serializable
@@ -97,13 +98,7 @@ class TelegramBotService(private val token: String) {
             text = text,
         )
 
-        val requestBodyString = json.encodeToString(requestBody)
-        val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMessage))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
-            .build()
-
-        client.send(request, HttpResponse.BodyHandlers.ofString())
+        sendToBot(json.encodeToString(requestBody))
     }
 
     fun sendMenu(json: Json, chatId: Long) {
@@ -115,18 +110,15 @@ class TelegramBotService(private val token: String) {
                     listOf(
                         InLineKeyBoard(text = "Изучить слова", callbackData = LEARN_WORD_BUTTON_DATA),
                         InLineKeyBoard(text = "Статистика", callbackData = STATISTIC_BUTTON_DATA),
+                    ),
+                    listOf(
+                        InLineKeyBoard(text = "Сбросить прогресс", callbackData = RESET_BUTTON_DATA),
                     )
                 )
             )
         )
 
-        val requestBodyString = json.encodeToString(requestBody)
-        val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMessage))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
-            .build()
-
-        client.send(request, HttpResponse.BodyHandlers.ofString())
+        sendToBot(json.encodeToString(requestBody))
     }
 
     fun sendQuestion(json: Json, chatId: Long, question: Question) {
@@ -140,10 +132,13 @@ class TelegramBotService(private val token: String) {
             )
         )
 
-        val requestBodyString = json.encodeToString(requestBody)
+        sendToBot(json.encodeToString(requestBody))
+    }
+
+    private fun sendToBot(body: String) {
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMessage))
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
 
         client.send(request, HttpResponse.BodyHandlers.ofString())
@@ -152,12 +147,9 @@ class TelegramBotService(private val token: String) {
 
 fun main(args: Array<String>) {
     val telegramBotService = TelegramBotService(token = args[0])
-    val trainer = LearnWordsTrainer(MIN_CORRECT_ANSWER, WORDS_PER_QUESTION)
+    val trainers = HashMap<Long, LearnWordsTrainer>()
+    val json = Json { ignoreUnknownKeys = true }
     var lastUpdateId = 0L
-
-    val json = Json {
-        ignoreUnknownKeys = true
-    }
 
     while (true) {
         Thread.sleep(2000)
@@ -166,42 +158,55 @@ fun main(args: Array<String>) {
         println(responseString)
 
         val response: Response = json.decodeFromString<Response>(responseString)
-        val updates = response.result
-        val firstUpdate = updates.firstOrNull() ?: continue
-        val updateId = firstUpdate.updateId
-        lastUpdateId = updateId + 1
+        if (response.result.isEmpty()) continue
 
-        val chatId = firstUpdate.message?.chat?.id ?: firstUpdate.callBackQuery?.message?.chat?.id
-        if (chatId == null) continue
+        val sortedUpdates = response.result.sortedBy { it.updateId }
+        sortedUpdates.forEach { handleUpdate(it, json, telegramBotService, trainers) }
+        lastUpdateId = sortedUpdates.last().updateId + 1
+    }
+}
 
-        val msg = firstUpdate.message?.text
-        println("Text - $msg")
+fun handleUpdate(
+    update: Update,
+    json: Json,
+    telegramBotService: TelegramBotService,
+    trainers: HashMap<Long, LearnWordsTrainer>
+) {
+    val chatId = update.message?.chat?.id ?: update.callBackQuery?.message?.chat?.id ?: return
+    val trainer = trainers.getOrPut(chatId) { LearnWordsTrainer("$chatId.txt", MIN_CORRECT_ANSWER, WORDS_PER_QUESTION) }
 
-        if (msg?.lowercase() == "/start") {
-            telegramBotService.sendMenu(json, chatId)
-            continue
-        }
+    val msg = update.message?.text
+    println("Text - $msg")
 
-        val data = firstUpdate.callBackQuery?.data?.lowercase()
+    if (msg?.lowercase() == "/start") {
+        telegramBotService.sendMenu(json, chatId)
+        return
+    }
 
-        if (data == STATISTIC_BUTTON_DATA) {
+    val data = update.callBackQuery?.data?.lowercase()
+
+    when {
+        data == STATISTIC_BUTTON_DATA -> {
             val statistic = trainer.getStatistics()
             telegramBotService.sendMessage(
                 json,
                 chatId,
                 "Выучено ${statistic.learnedCount} из ${statistic.totalCount} слов | ${statistic.learnedPercent}%!"
             )
-            continue
         }
 
-        if (data == LEARN_WORD_BUTTON_DATA) {
+        data == LEARN_WORD_BUTTON_DATA -> {
             checkNextQuestionAndSend(json, trainer, telegramBotService, chatId)
-            continue
         }
 
-        if (data?.startsWith(CALLBACK_DATA_ANSWER_PREFIX) == true) {
-            val userAnswerIndex = data.substringAfter(CALLBACK_DATA_ANSWER_PREFIX).toIntOrNull() ?: continue
-            val question = trainer.question ?: continue
+        data == RESET_BUTTON_DATA -> {
+            trainer.resetProgress()
+            telegramBotService.sendMessage(json, chatId, "Прогресс сброшен.")
+        }
+
+        data?.startsWith(CALLBACK_DATA_ANSWER_PREFIX) == true -> {
+            val userAnswerIndex = data.substringAfter(CALLBACK_DATA_ANSWER_PREFIX).toIntOrNull() ?: return
+            val question = trainer.question ?: return
 
             if (trainer.checkAnswer(userAnswerIndex))
                 telegramBotService.sendMessage(json, chatId, "Правильно!")

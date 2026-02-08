@@ -80,16 +80,19 @@ class LearnWordsTrainer(
             }
 
             val dictionary = mutableListOf<Word>()
-
             val dictionaryLines = dictionaryFile.readLines()
-            dictionaryLines.forEach {
-                val line = it.split("|")
-                val word =
-                    Word(
-                        original = line[0],
-                        translate = line[1],
-                        correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0
-                    )
+            for (dictionaryLine in dictionaryLines) {
+                val line = dictionaryLine.split("|")
+                if (line.size != 3) {
+                    println("Не корректная строка.")
+                    continue
+                }
+
+                val word = Word(
+                    original = line[0],
+                    translate = line[1],
+                    correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0
+                )
                 dictionary.add(word)
             }
 

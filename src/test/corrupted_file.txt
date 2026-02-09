@@ -1,0 +1,6 @@
+﻿define|определять|0
+solve|решать|0
+-broken line-
+full|полный|3
+narrow|узкий|3
+wide|широкий|3

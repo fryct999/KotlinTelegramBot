@@ -3,6 +3,7 @@ package fryct999
 fun Question.asConsoleString(): String {
     val variants = this.variants
         .mapIndexed { index: Int, word: Word -> "${index + 1} - ${word.translate}" }
+        .take(10)
         .joinToString(separator = "\n")
 
     return this.correctAnswer.original + "\n" + variants + "\n ---------- \n0 - Меню"

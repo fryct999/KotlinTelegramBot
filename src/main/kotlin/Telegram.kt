@@ -3,6 +3,8 @@
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.io.InputStream
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -34,9 +36,11 @@ data class Response(
 @Serializable
 data class Message(
     @SerialName("text")
-    val text: String,
+    val text: String? = null,
     @SerialName("chat")
     val chat: Chat,
+    @SerialName("document")
+    val document: Document? = null,
 )
 
 @Serializable
@@ -77,6 +81,46 @@ data class SendMessageRequest(
     val replyMarkup: ReplyMarkup? = null,
 )
 
+@Serializable
+data class Document(
+    @SerialName("file_name")
+    val fileName: String,
+    @SerialName("mime_type")
+    val mimeType: String,
+    @SerialName("file_id")
+    val fileId: String,
+    @SerialName("file_unique_id")
+    val fileUniqueId: String,
+    @SerialName("file_size")
+    val fileSize: Long,
+)
+
+@Serializable
+data class GetFileRequest(
+    @SerialName("file_id")
+    val fileId: String
+)
+
+@Serializable
+data class GetFileResponse(
+    @SerialName("ok")
+    val status: Boolean,
+    @SerialName("result")
+    val result: TelegramFile? = null,
+)
+
+@Serializable
+data class TelegramFile(
+    @SerialName("file_id")
+    val fileId: String,
+    @SerialName("file_unique_id")
+    val fileUniqueId: String,
+    @SerialName("file_size")
+    val fileSize: Long,
+    @SerialName("file_path")
+    val filePath: String,
+)
+
 class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
     private val urlSendMessage = "$telegramBaseUrl/bot$token/sendMessage"
@@ -86,6 +130,22 @@ class TelegramBotService(private val token: String) {
         val urlGetUpdates = "$telegramBaseUrl/bot$token/getUpdates?offset=$updateId"
         val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlGetUpdates)).build()
         val response: HttpResponse<String> = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+        return response.body()
+    }
+
+    fun getFile(json: Json, fileId: String): String {
+        val urlGetFile = "$telegramBaseUrl/bot$token/getFile"
+        val request: HttpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(urlGetFile))
+            .header("Content-type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(GetFileRequest(fileId = fileId))))
+            .build()
+
+        val response: HttpResponse<String> = client.send(
+            request,
+            HttpResponse.BodyHandlers.ofString()
+        )
 
         return response.body()
     }
@@ -136,12 +196,34 @@ class TelegramBotService(private val token: String) {
     }
 
     private fun sendToBot(body: String) {
-        val request: HttpRequest = HttpRequest.newBuilder().uri(URI.create(urlSendMessage))
+        val request: HttpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(urlSendMessage))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
 
         client.send(request, HttpResponse.BodyHandlers.ofString())
+    }
+
+    fun downloadFile(filePath: String, fileName: String) {
+        val urlGetFile = "$telegramBaseUrl/file/bot$token/$filePath"
+        val request = HttpRequest
+            .newBuilder()
+            .uri(URI.create(urlGetFile))
+            .GET()
+            .build()
+
+        val response: HttpResponse<InputStream> = HttpClient
+            .newHttpClient()
+            .send(request, HttpResponse.BodyHandlers.ofInputStream())
+
+        println("Status code: " + response.statusCode())
+        val body: InputStream = response.body()
+        File(fileName).outputStream().use { outputStream ->
+            body.use { inputStream ->
+                inputStream.copyTo(outputStream, 16 * 1024)
+            }
+        }
     }
 }
 
@@ -174,6 +256,20 @@ fun handleUpdate(
 ) {
     val chatId = update.message?.chat?.id ?: update.callBackQuery?.message?.chat?.id ?: return
     val trainer = trainers.getOrPut(chatId) { LearnWordsTrainer("$chatId.txt", MIN_CORRECT_ANSWER, WORDS_PER_QUESTION) }
+
+    if (update.message?.document != null) {
+        val jsonResponse = telegramBotService.getFile(json, update.message.document.fileId)
+        val response: GetFileResponse = json.decodeFromString(jsonResponse)
+        response.result?.let {
+            val newWordsFile = File(it.fileUniqueId)
+            if (!newWordsFile.exists()) {
+                telegramBotService.downloadFile(it.filePath, it.fileUniqueId)
+                trainer.addNewWords(it.fileUniqueId)
+            }
+        }
+
+        return
+    }
 
     val msg = update.message?.text
     println("Text - $msg")

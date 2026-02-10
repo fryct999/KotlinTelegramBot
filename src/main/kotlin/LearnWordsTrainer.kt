@@ -29,7 +29,7 @@ class LearnWordsTrainer(
     var question: Question? = null
         private set
 
-    private val dictionary = loadDictionary()
+    private val dictionary = readWordsFile(fileName)
 
     fun getStatistics(): Statistics {
         val totalCount = dictionary.size
@@ -72,7 +72,7 @@ class LearnWordsTrainer(
         } ?: false
     }
 
-    private fun loadDictionary(): MutableList<Word> {
+    private fun readWordsFile(fileName: String): MutableList<Word> {
         try {
             val dictionaryFile = File(fileName)
             if (!dictionaryFile.exists()) {
@@ -110,5 +110,13 @@ class LearnWordsTrainer(
     fun resetProgress() {
         dictionary.forEach { it.correctAnswersCount = 0 }
         saveDictionary()
+    }
+
+    fun addNewWords(fileName: String) {
+        val newWords = readWordsFile(fileName)
+        if (newWords.isNotEmpty()) {
+            dictionary.addAll(newWords)
+            saveDictionary()
+        }
     }
 }

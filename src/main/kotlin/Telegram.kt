@@ -217,9 +217,13 @@ class TelegramBotService(private val token: String) {
             .newHttpClient()
             .send(request, HttpResponse.BodyHandlers.ofInputStream())
 
-        System.out.println("status code: " + response.statusCode())
+        println("Status code: " + response.statusCode())
         val body: InputStream = response.body()
-        body.copyTo(File(fileName).outputStream(), 16 * 1024)
+        File(fileName).outputStream().use { outputStream ->
+            body.use { inputStream ->
+                inputStream.copyTo(outputStream, 16 * 1024)
+            }
+        }
     }
 }
 

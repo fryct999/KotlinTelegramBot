@@ -1,7 +1,7 @@
-hello|привет|0
-dog|собака|0
-cat|кошка|0
-banana|банан|0
-tea|чай|0
-box|коробка|0
-bear|пиво|0
+hello|привет|0|hello.png
+dog|собака|0|dog.png
+cat|кошка|0|cat.png
+banana|банан|0|banana.png
+tea|чай|0|tea.png
+box|коробка|0|box.png
+bear|медведь|0|

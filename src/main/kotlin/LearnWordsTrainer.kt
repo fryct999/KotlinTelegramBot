@@ -2,7 +2,6 @@
 
 import kotlinx.serialization.Serializable
 import java.io.File
-import kotlin.String
 
 @Serializable
 data class Word(
@@ -178,7 +177,7 @@ class LearnWordsTrainer(
         saveImageIdFile()
     }
 
-    fun saveImageIdFile() {
+    private fun saveImageIdFile() {
         val imageIdFile = File("imageId.txt")
         imageIdFile.writeText(imageId.joinToString(separator = "") { "${it.word}|${it.fileId}\n" })
     }

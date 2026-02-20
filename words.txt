@@ -4,4 +4,4 @@ cat|кошка|0|cat.png
 banana|банан|0|banana.png
 tea|чай|0|tea.png
 box|коробка|0|box.png
-bear|медведь|0|
+bear|медведь|0|bear.png

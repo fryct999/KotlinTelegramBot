@@ -46,6 +46,8 @@ data class Message(
     val chat: Chat,
     @SerialName("document")
     val document: Document? = null,
+    @SerialName("message_id")
+    val messageId: Long? = null,
 )
 
 @Serializable
@@ -84,6 +86,8 @@ data class SendMessageRequest(
     val text: String,
     @SerialName("reply_markup")
     val replyMarkup: ReplyMarkup? = null,
+    @SerialName("message_id")
+    val messageId: Long? = null,
 )
 
 @Serializable
@@ -134,6 +138,8 @@ data class ImageResponse(
 
 @Serializable
 data class ImageList(
+    @SerialName("message_id")
+    val messageId: Long,
     @SerialName("photo")
     val image: List<ImageData>,
 )
@@ -156,7 +162,57 @@ data class SendImageFileIdRequest(
     val fileId: String,
 )
 
-private fun HttpRequest.Builder.postMultipartFormData(boundary: String, data: Map<String, Any>): HttpRequest.Builder {
+@Serializable
+data class InputMedia(
+    @SerialName("type")
+    val type: String,
+    @SerialName("media")
+    val media: String,
+    @SerialName("has_spoiler")
+    val hasSpoiler: Boolean = false,
+)
+
+@Serializable
+data class EditImageFileIdRequest(
+    @SerialName("chat_id")
+    val chatId: Long,
+    @SerialName("message_id")
+    val messageId: Long,
+    @SerialName("media")
+    val media: InputMedia,
+)
+
+@Serializable
+data class SendMessageResponse(
+    @SerialName("chat")
+    val chat: Chat,
+    @SerialName("text")
+    val text: String,
+    @SerialName("message_id")
+    val messageId: Long,
+    @SerialName("reply_markup")
+    val replyMarkup: ReplyMarkup? = null,
+)
+
+@Serializable
+data class SendResponse(
+    @SerialName("result")
+    val result: SendMessageResponse,
+)
+
+@Serializable
+data class EditMessageResponse(
+    @SerialName("ok")
+    val status: Boolean,
+    @SerialName("description")
+    val description: String? = null,
+)
+
+private fun HttpRequest.Builder.postMultipartFormData(
+    boundary: String,
+    data: Map<String, Any>,
+    forEditMessage: Boolean = false
+): HttpRequest.Builder {
     val byteArrays = ArrayList<ByteArray>()
     val separator = "--$boundary\r\nContent-Disposition: form-data; name=".toByteArray(StandardCharsets.UTF_8)
 
@@ -167,11 +223,19 @@ private fun HttpRequest.Builder.postMultipartFormData(boundary: String, data: Ma
                 val file = entry.value as File
                 val path = Path.of(file.toURI())
                 val mimeType = Files.probeContentType(path)
+
+                val fileName_field = if (forEditMessage && entry.key == "file") {
+                    "\"file\"; filename=\"${path.fileName}\""
+                } else {
+                    "\"${entry.key}\"; filename=\"${path.fileName}\""
+                }
+
                 byteArrays.add(
-                    "\"${entry.key}\"; filename=\"${path.fileName}\"\r\nContent-Type: $mimeType\r\n\r\n".toByteArray(
+                    "$fileName_field\r\nContent-Type: $mimeType\r\n\r\n".toByteArray(
                         StandardCharsets.UTF_8
                     )
                 )
+
                 byteArrays.add(Files.readAllBytes(path))
                 byteArrays.add("\r\n".toByteArray(StandardCharsets.UTF_8))
             }
@@ -187,10 +251,44 @@ private fun HttpRequest.Builder.postMultipartFormData(boundary: String, data: Ma
     return this
 }
 
+class DynamicMessage(
+    var messageId: Long? = null,
+    var statisticMessageId: Long? = null,
+    var inlineMessageId: Long? = null,
+    var imageMessageId: Long? = null,
+) {
+    private val messageHistory = mutableListOf<String>()
+
+    fun updateMessage(newText: String) {
+        messageHistory.add(newText)
+    }
+
+    fun rollbackToPrevious(): String {
+        if (messageHistory.size > 1) {
+            messageHistory.removeLastOrNull()
+            return messageHistory.lastOrNull() ?: "Нет предыдущих сообщений"
+        }
+
+        return "Нет предыдущих сообщений"
+    }
+}
+
 class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
     private val urlSendMessage = "$telegramBaseUrl/bot$token/sendMessage"
+    private val urlEditMessage = "$telegramBaseUrl/bot$token/editMessageText"
     private val client = HttpClient.newBuilder().build()
+
+    private fun sendToBot(url: String, body: String): String {
+        val request: HttpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build()
+
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        return response.body()
+    }
 
     fun getUpdates(updateId: Long): String {
         val urlGetUpdates = "$telegramBaseUrl/bot$token/getUpdates?offset=$updateId"
@@ -200,6 +298,88 @@ class TelegramBotService(private val token: String) {
         return response.body()
     }
 
+    fun editMessage(json: Json, chatId: Long, messageId: Long, text: String): Boolean {
+        val requestBody = SendMessageRequest(
+            chatId = chatId,
+            text = text,
+            messageId = messageId,
+        )
+
+        val responseString = sendToBot(urlEditMessage, json.encodeToString(requestBody))
+        val decode = json.decodeFromString<EditMessageResponse>(responseString)
+
+        if (!decode.status && decode.description?.contains("message is not modified") == true)
+            return true
+
+
+        return decode.status
+    }
+
+    fun editQuestion(json: Json, chatId: Long, messageId: Long, question: Question) {
+        val requestBody = SendMessageRequest(
+            chatId = chatId,
+            text = question.correctAnswer.original,
+            messageId = messageId,
+            replyMarkup = ReplyMarkup(
+                listOf(question.variants.mapIndexed { index, word ->
+                    InLineKeyBoard(text = word.translate, callbackData = "${CALLBACK_DATA_ANSWER_PREFIX}$index")
+                })
+            )
+        )
+
+        sendToBot(urlEditMessage, json.encodeToString(requestBody))
+    }
+
+    fun editImageMessage(
+        json: Json,
+        chatId: Long,
+        messageId: Long,
+        file: File? = null,
+        fileId: String? = null,
+    ): String? {
+        val url = "$telegramBaseUrl/bot$token/editMessageMedia"
+
+        if (file != null) {
+            val data: MutableMap<String, Any> = LinkedHashMap()
+            data["chat_id"] = chatId.toString()
+            data["message_id"] = messageId.toString()
+            data["media"] = json.encodeToString(InputMedia(type = "photo", media = "attach://file", hasSpoiler = true))
+            data["file"] = file
+
+            val boundary: String = BigInteger(35, Random()).toString()
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .postMultipartFormData(boundary, data, true)
+                .build()
+
+            return client.send(request, HttpResponse.BodyHandlers.ofString()).body()
+        } else if (fileId != null) {
+            return sendToBot(
+                url, json.encodeToString(
+                    EditImageFileIdRequest(
+                        chatId = chatId,
+                        messageId = messageId,
+                        media = InputMedia(media = fileId, type = "photo", hasSpoiler = true),
+                    )
+                )
+            )
+        } else return null
+    }
+
+    fun sendMessage(json: Json, chatId: Long, text: String): Long {
+        if (text.isEmpty() || text.length >= 4096) return 0
+
+        val requestBody = SendMessageRequest(
+            chatId = chatId,
+            text = text,
+        )
+
+        val responseString = sendToBot(urlSendMessage, json.encodeToString(requestBody))
+        val response: SendResponse = json.decodeFromString<SendResponse>(responseString)
+
+        return response.result.messageId
+    }
+
     fun getFile(json: Json, fileId: String): String {
         val url = "$telegramBaseUrl/bot$token/getFile"
         val responseBody = sendToBot(url, json.encodeToString(GetFileRequest(fileId = fileId)))
@@ -207,18 +387,7 @@ class TelegramBotService(private val token: String) {
         return responseBody
     }
 
-    fun sendMessage(json: Json, chatId: Long, text: String) {
-        if (text.isEmpty() || text.length >= 4096) return
-
-        val requestBody = SendMessageRequest(
-            chatId = chatId,
-            text = text,
-        )
-
-        sendToBot(urlSendMessage, json.encodeToString(requestBody))
-    }
-
-    fun sendPhoto(
+    fun sendImage(
         json: Json,
         chatId: Long,
         file: File? = null,
@@ -240,8 +409,7 @@ class TelegramBotService(private val token: String) {
                 .postMultipartFormData(boundary, data)
                 .build()
 
-            val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-            return response.body()
+            return client.send(request, HttpResponse.BodyHandlers.ofString()).body()
         } else if (fileId != null) {
             return sendToBot(
                 url, json.encodeToString(
@@ -255,7 +423,7 @@ class TelegramBotService(private val token: String) {
         } else return null
     }
 
-    fun sendMenu(json: Json, chatId: Long) {
+    fun sendMenu(json: Json, chatId: Long): Long {
         val requestBody = SendMessageRequest(
             chatId = chatId,
             text = "Основное меню",
@@ -272,10 +440,13 @@ class TelegramBotService(private val token: String) {
             )
         )
 
-        sendToBot(urlSendMessage, json.encodeToString(requestBody))
+        val responseString = sendToBot(urlSendMessage, json.encodeToString(requestBody))
+        val response: SendResponse = json.decodeFromString<SendResponse>(responseString)
+
+        return response.result.messageId
     }
 
-    fun sendQuestion(json: Json, chatId: Long, question: Question) {
+    fun sendQuestion(json: Json, chatId: Long, question: Question): Long {
         val requestBody = SendMessageRequest(
             chatId = chatId,
             text = question.correctAnswer.original,
@@ -286,18 +457,10 @@ class TelegramBotService(private val token: String) {
             )
         )
 
-        sendToBot(urlSendMessage, json.encodeToString(requestBody))
-    }
+        val responseString = sendToBot(urlSendMessage, json.encodeToString(requestBody))
+        val response: SendResponse = json.decodeFromString<SendResponse>(responseString)
 
-    private fun sendToBot(url: String, body: String): String {
-        val request: HttpRequest = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(body))
-            .build()
-
-        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-        return response.body()
+        return response.result.messageId
     }
 
     fun downloadFile(filePath: String, fileName: String) {
@@ -325,6 +488,8 @@ class TelegramBotService(private val token: String) {
 fun main(args: Array<String>) {
     val telegramBotService = TelegramBotService(token = args[0])
     val trainers = HashMap<Long, LearnWordsTrainer>()
+    val usersDynamicMessageList = mutableMapOf<Long, DynamicMessage>()
+
     val json = Json { ignoreUnknownKeys = true }
     var lastUpdateId = 0L
 
@@ -338,7 +503,7 @@ fun main(args: Array<String>) {
         if (response.result.isEmpty()) continue
 
         val sortedUpdates = response.result.sortedBy { it.updateId }
-        sortedUpdates.forEach { handleUpdate(it, json, telegramBotService, trainers) }
+        sortedUpdates.forEach { handleUpdate(it, json, telegramBotService, trainers, usersDynamicMessageList) }
         lastUpdateId = sortedUpdates.last().updateId + 1
     }
 }
@@ -347,10 +512,12 @@ fun handleUpdate(
     update: Update,
     json: Json,
     telegramBotService: TelegramBotService,
-    trainers: HashMap<Long, LearnWordsTrainer>
+    trainers: HashMap<Long, LearnWordsTrainer>,
+    usersDynamicMessageList: MutableMap<Long, DynamicMessage>,
 ) {
     val chatId = update.message?.chat?.id ?: update.callBackQuery?.message?.chat?.id ?: return
     val trainer = trainers.getOrPut(chatId) { LearnWordsTrainer("$chatId.txt", MIN_CORRECT_ANSWER, WORDS_PER_QUESTION) }
+    val dynamicMessage: DynamicMessage = usersDynamicMessageList.getOrPut(chatId) { DynamicMessage() }
 
     if (update.message?.document != null) {
         val jsonResponse = telegramBotService.getFile(json, update.message.document.fileId)
@@ -374,41 +541,131 @@ fun handleUpdate(
         return
     }
 
-    val data = update.callBackQuery?.data?.lowercase()
+    if (msg?.lowercase() == "/undo") {
+        val text = dynamicMessage.rollbackToPrevious()
+        sendTextMessage(dynamicMessage, text, telegramBotService, json, chatId)
+    }
 
+    val data = update.callBackQuery?.data?.lowercase()
     when {
-        data == STATISTIC_BUTTON_DATA -> {
-            val statistic = trainer.getStatistics()
-            telegramBotService.sendMessage(
-                json,
-                chatId,
-                "Выучено ${statistic.learnedCount} из ${statistic.totalCount} слов | ${statistic.learnedPercent}%!"
-            )
-        }
+        data == STATISTIC_BUTTON_DATA -> sendUserStatistic(
+            trainer = trainer,
+            telegramBotService = telegramBotService,
+            dynamicMessage = dynamicMessage,
+            chatId = chatId,
+            json = json
+        )
 
         data == LEARN_WORD_BUTTON_DATA -> {
-            checkNextQuestionAndSend(json, trainer, telegramBotService, chatId)
+            checkNextQuestionAndSend(json, trainer, telegramBotService, chatId, dynamicMessage)
         }
 
         data == RESET_BUTTON_DATA -> {
             trainer.resetProgress()
-            telegramBotService.sendMessage(json, chatId, "Прогресс сброшен.")
+            val text = "Прогресс сброшен."
+            sendTextMessage(dynamicMessage, text, telegramBotService, json, chatId)
+            sendUserStatistic(
+                trainer = trainer,
+                telegramBotService = telegramBotService,
+                dynamicMessage = dynamicMessage,
+                chatId = chatId,
+                json = json
+            )
         }
 
         data?.startsWith(CALLBACK_DATA_ANSWER_PREFIX) == true -> {
             val userAnswerIndex = data.substringAfter(CALLBACK_DATA_ANSWER_PREFIX).toIntOrNull() ?: return
             val question = trainer.question ?: return
 
-            if (trainer.checkAnswer(userAnswerIndex))
-                telegramBotService.sendMessage(json, chatId, "Правильно!")
-            else
-                telegramBotService.sendMessage(
-                    json,
-                    chatId,
-                    "Не правильно! ${question.correctAnswer.original} - это ${question.correctAnswer.translate}."
+            val text = if (trainer.checkAnswer(userAnswerIndex)) {
+                sendUserStatistic(
+                    trainer = trainer,
+                    telegramBotService = telegramBotService,
+                    dynamicMessage = dynamicMessage,
+                    chatId = chatId,
+                    json = json
                 )
 
-            checkNextQuestionAndSend(json, trainer, telegramBotService, chatId)
+                "Правильно!"
+            } else
+                "Не правильно! ${question.correctAnswer.original} - это ${question.correctAnswer.translate}."
+
+            sendTextMessage(dynamicMessage, text, telegramBotService, json, chatId)
+            checkNextQuestionAndSend(json, trainer, telegramBotService, chatId, dynamicMessage)
+        }
+    }
+}
+
+fun sendTextMessage(
+    dynamicMessage: DynamicMessage,
+    text: String,
+    telegramBotService: TelegramBotService,
+    json: Json,
+    chatId: Long,
+) {
+    dynamicMessage.updateMessage(text)
+
+    val messageId = dynamicMessage.messageId
+    if (messageId == null) {
+        dynamicMessage.messageId = telegramBotService.sendMessage(
+            json = json,
+            chatId = chatId,
+            text = text,
+        )
+    } else {
+        val result = telegramBotService.editMessage(
+            json = json,
+            chatId = chatId,
+            text = text,
+            messageId = messageId,
+        )
+
+        println("result: $result")
+
+        if (!result) {
+            dynamicMessage.messageId = telegramBotService.sendMessage(
+                json = json,
+                chatId = chatId,
+                text = text,
+            )
+        }
+    }
+}
+
+fun sendUserStatistic(
+    trainer: LearnWordsTrainer,
+    dynamicMessage: DynamicMessage,
+    telegramBotService: TelegramBotService,
+    json: Json,
+    chatId: Long,
+) {
+    val statistic = trainer.getStatistics()
+    val percent = statistic.learnedPercent
+    val progressBar = "█".repeat(percent / 10) + "▒".repeat(10 - percent / 10)
+    val text =
+        "Выучено ${statistic.learnedCount} из ${statistic.totalCount} слов.\nПроцесс изучения: $percent%\n[$progressBar]"
+
+    val messageId = dynamicMessage.statisticMessageId
+    if (messageId == null) {
+        dynamicMessage.statisticMessageId = telegramBotService.sendMessage(
+            json = json,
+            chatId = chatId,
+            text = text,
+        )
+    } else {
+        val result = telegramBotService.editMessage(
+            json = json,
+            chatId = chatId,
+            text = text,
+            messageId = messageId,
+        )
+
+        if (!result) {
+            dynamicMessage.statisticMessageId = telegramBotService.sendMessage(
+                json = json,
+                chatId = chatId,
+                text = text,
+            )
         }
     }
 }
@@ -417,37 +674,70 @@ fun checkNextQuestionAndSend(
     json: Json,
     trainer: LearnWordsTrainer,
     telegramBotService: TelegramBotService,
-    chatId: Long
+    chatId: Long,
+    dynamicMessage: DynamicMessage,
 ) {
     val question = trainer.getNextQuestion()
     if (question == null) {
-        telegramBotService.sendMessage(json, chatId, "Вы выучили все слова в базе!")
+        val text = "Вы выучили все слова в базе!"
+        sendTextMessage(dynamicMessage, text, telegramBotService, json, chatId)
         return
     }
 
+    val imageMessageId = dynamicMessage.imageMessageId
     val imageId = trainer.getImageFileId(question.correctAnswer.original)
-    if (imageId != null) {
-        telegramBotService.sendPhoto(
-            json = json,
-            chatId = chatId,
-            fileId = imageId,
-            hasSpoiler = true,
-        )
-    } else if (question.correctAnswer.imagePath != "") {
-        val answer = telegramBotService.sendPhoto(
-            json = json,
-            chatId = chatId,
-            file = File("imgWords/${question.correctAnswer.imagePath}"),
-            hasSpoiler = true,
-        )
+    if (imageMessageId == null) {
+        val answer = if (imageId != null) {
+            telegramBotService.sendImage(
+                json = json,
+                chatId = chatId,
+                fileId = imageId,
+                hasSpoiler = true,
+            )
+        } else if (question.correctAnswer.imagePath != "") {
+            telegramBotService.sendImage(
+                json = json,
+                chatId = chatId,
+                file = File("imgWords/${question.correctAnswer.imagePath}"),
+                hasSpoiler = true,
+            )
+        } else null
 
         if (answer != null) {
             val images = json.decodeFromString<ImageResponse>(answer)
             val originalImage = images.result.image.maxBy { it.fileSize }
+            dynamicMessage.imageMessageId = images.result.messageId
 
             trainer.addImgFileId(question.correctAnswer, originalImage.fileId)
         }
+    } else {
+        if (imageId != null) {
+            telegramBotService.editImageMessage(
+                json = json,
+                chatId = chatId,
+                messageId = imageMessageId,
+                fileId = imageId,
+            )
+        } else if (question.correctAnswer.imagePath != "") {
+            val answer = telegramBotService.editImageMessage(
+                json = json,
+                chatId = chatId,
+                messageId = imageMessageId,
+                file = File("imgWords/${question.correctAnswer.imagePath}"),
+            )
+
+            if (answer != null) {
+                val images = json.decodeFromString<ImageResponse>(answer)
+                val originalImage = images.result.image.maxBy { it.fileSize }
+
+                trainer.addImgFileId(question.correctAnswer, originalImage.fileId)
+            }
+        }
     }
 
-    telegramBotService.sendQuestion(json, chatId, question)
+    val questionMessageId = dynamicMessage.inlineMessageId
+    if (questionMessageId == null)
+        dynamicMessage.inlineMessageId = telegramBotService.sendQuestion(json, chatId, question)
+    else
+        telegramBotService.editQuestion(json, chatId, questionMessageId, question)
 }

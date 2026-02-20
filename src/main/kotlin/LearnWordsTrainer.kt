@@ -2,12 +2,14 @@
 
 import kotlinx.serialization.Serializable
 import java.io.File
+import kotlin.String
 
 @Serializable
 data class Word(
     val original: String,
     val translate: String,
     var correctAnswersCount: Int = 0,
+    val imagePath: String,
 )
 
 data class Statistics(
@@ -21,6 +23,11 @@ data class Question(
     val correctAnswer: Word,
 )
 
+data class Image(
+    val word: String,
+    var fileId: String,
+)
+
 class LearnWordsTrainer(
     private val fileName: String = "words.txt",
     private val learnedAnswerCount: Int = 3,
@@ -29,6 +36,7 @@ class LearnWordsTrainer(
     var question: Question? = null
         private set
 
+    private val imageId = createImageIdList()
     private val dictionary = readWordsFile(fileName)
 
     fun getStatistics(): Statistics {
@@ -72,6 +80,32 @@ class LearnWordsTrainer(
         } ?: false
     }
 
+    private fun createImageIdList(): MutableList<Image> {
+        val imageIdFile = File("imageId.txt")
+        val list = mutableListOf<Image>()
+
+        if (imageIdFile.createNewFile()) return list
+
+        val imageIdLines = imageIdFile.readLines()
+        if (imageIdLines.isNotEmpty()) {
+            for (imageIdLine in imageIdLines) {
+                val line = imageIdLine.split("|")
+                val word = line.getOrNull(0)
+                val id = line.getOrNull(1)
+
+                if (id == null || word == null) continue
+                list.add(
+                    Image(
+                        word = word,
+                        fileId = id,
+                    )
+                )
+            }
+        }
+
+        return list
+    }
+
     private fun readWordsFile(fileName: String): MutableList<Word> {
         try {
             val dictionaryFile = File(fileName)
@@ -83,16 +117,19 @@ class LearnWordsTrainer(
             val dictionaryLines = dictionaryFile.readLines()
             for (dictionaryLine in dictionaryLines) {
                 val line = dictionaryLine.split("|")
-                if (line.size != 3) {
+                if (line.size != 4) {
                     println("Не корректная строка.")
                     continue
                 }
 
+                val img = File("imgWords/${line[3]}")
                 val word = Word(
                     original = line[0],
                     translate = line[1],
-                    correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0
+                    correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0,
+                    imagePath = if (img.exists() && img.isFile) line[3] else "",
                 )
+
                 dictionary.add(word)
             }
 
@@ -104,7 +141,7 @@ class LearnWordsTrainer(
 
     private fun saveDictionary() {
         val dictionaryFile = File(fileName)
-        dictionaryFile.writeText(dictionary.joinToString(separator = "") { "${it.original}|${it.translate}|${it.correctAnswersCount}\n" })
+        dictionaryFile.writeText(dictionary.joinToString(separator = "") { "${it.original}|${it.translate}|${it.correctAnswersCount}|${it.imagePath}\n" })
     }
 
     fun resetProgress() {
@@ -118,5 +155,31 @@ class LearnWordsTrainer(
             dictionary.addAll(newWords)
             saveDictionary()
         }
+    }
+
+    fun getImageFileId(word: String): String? {
+        val image = imageId.find { it.word == word }
+        return image?.fileId
+    }
+
+    fun addImgFileId(word: Word, fileId: String) {
+        val image = imageId.find { it.word == word.original }
+        if (image != null) {
+            image.fileId = fileId
+        } else {
+            imageId.add(
+                Image(
+                    word = word.original,
+                    fileId = fileId,
+                )
+            )
+        }
+
+        saveImageIdFile()
+    }
+
+    fun saveImageIdFile() {
+        val imageIdFile = File("imageId.txt")
+        imageIdFile.writeText(imageId.joinToString(separator = "") { "${it.word}|${it.fileId}\n" })
     }
 }

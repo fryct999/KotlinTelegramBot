@@ -5,10 +5,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.InputStream
+import java.math.BigInteger
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Random
 
 const val MIN_CORRECT_ANSWER = 3
 const val WORDS_PER_QUESTION = 4
@@ -121,6 +126,67 @@ data class TelegramFile(
     val filePath: String,
 )
 
+@Serializable
+data class ImageResponse(
+    @SerialName("result")
+    val result: ImageList,
+)
+
+@Serializable
+data class ImageList(
+    @SerialName("photo")
+    val image: List<ImageData>,
+)
+
+@Serializable
+data class ImageData(
+    @SerialName("file_id")
+    val fileId: String,
+    @SerialName("file_size")
+    val fileSize: Int,
+)
+
+@Serializable
+data class SendImageFileIdRequest(
+    @SerialName("chat_id")
+    val chatId: Long,
+    @SerialName("has_spoiler")
+    val hasSpoiler: Boolean,
+    @SerialName("photo")
+    val fileId: String,
+)
+
+private fun HttpRequest.Builder.postMultipartFormData(boundary: String, data: Map<String, Any>): HttpRequest.Builder {
+    val byteArrays = ArrayList<ByteArray>()
+    val separator = "--$boundary\r\nContent-Disposition: form-data; name=".toByteArray(StandardCharsets.UTF_8)
+
+    for (entry in data.entries) {
+        byteArrays.add(separator)
+        when (entry.value) {
+            is File -> {
+                val file = entry.value as File
+                val path = Path.of(file.toURI())
+                val mimeType = Files.probeContentType(path)
+                byteArrays.add(
+                    "\"${entry.key}\"; filename=\"${path.fileName}\"\r\nContent-Type: $mimeType\r\n\r\n".toByteArray(
+                        StandardCharsets.UTF_8
+                    )
+                )
+                byteArrays.add(Files.readAllBytes(path))
+                byteArrays.add("\r\n".toByteArray(StandardCharsets.UTF_8))
+            }
+
+            else -> byteArrays.add("\"${entry.key}\"\r\n\r\n${entry.value}\r\n".toByteArray(StandardCharsets.UTF_8))
+        }
+    }
+    byteArrays.add("--$boundary--".toByteArray(StandardCharsets.UTF_8))
+
+    this.header("Content-Type", "multipart/form-data;boundary=$boundary")
+        .POST(HttpRequest.BodyPublishers.ofByteArrays(byteArrays))
+
+    return this
+}
+
 class TelegramBotService(private val token: String) {
     private val telegramBaseUrl = "https://api.telegram.org"
     private val urlSendMessage = "$telegramBaseUrl/bot$token/sendMessage"
@@ -135,19 +201,10 @@ class TelegramBotService(private val token: String) {
     }
 
     fun getFile(json: Json, fileId: String): String {
-        val urlGetFile = "$telegramBaseUrl/bot$token/getFile"
-        val request: HttpRequest = HttpRequest.newBuilder()
-            .uri(URI.create(urlGetFile))
-            .header("Content-type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(GetFileRequest(fileId = fileId))))
-            .build()
+        val url = "$telegramBaseUrl/bot$token/getFile"
+        val responseBody = sendToBot(url, json.encodeToString(GetFileRequest(fileId = fileId)))
 
-        val response: HttpResponse<String> = client.send(
-            request,
-            HttpResponse.BodyHandlers.ofString()
-        )
-
-        return response.body()
+        return responseBody
     }
 
     fun sendMessage(json: Json, chatId: Long, text: String) {
@@ -158,7 +215,44 @@ class TelegramBotService(private val token: String) {
             text = text,
         )
 
-        sendToBot(json.encodeToString(requestBody))
+        sendToBot(urlSendMessage, json.encodeToString(requestBody))
+    }
+
+    fun sendPhoto(
+        json: Json,
+        chatId: Long,
+        file: File? = null,
+        fileId: String? = null,
+        hasSpoiler: Boolean = false
+    ): String? {
+        val url = "$telegramBaseUrl/bot$token/sendPhoto"
+
+        if (file != null) {
+            val data: MutableMap<String, Any> = LinkedHashMap()
+            data["chat_id"] = chatId.toString()
+            data["has_spoiler"] = hasSpoiler
+            data["photo"] = file
+
+            val boundary: String = BigInteger(35, Random()).toString()
+
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .postMultipartFormData(boundary, data)
+                .build()
+
+            val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+            return response.body()
+        } else if (fileId != null) {
+            return sendToBot(
+                url, json.encodeToString(
+                    SendImageFileIdRequest(
+                        chatId = chatId,
+                        hasSpoiler = hasSpoiler,
+                        fileId = fileId,
+                    )
+                )
+            )
+        } else return null
     }
 
     fun sendMenu(json: Json, chatId: Long) {
@@ -178,7 +272,7 @@ class TelegramBotService(private val token: String) {
             )
         )
 
-        sendToBot(json.encodeToString(requestBody))
+        sendToBot(urlSendMessage, json.encodeToString(requestBody))
     }
 
     fun sendQuestion(json: Json, chatId: Long, question: Question) {
@@ -192,17 +286,18 @@ class TelegramBotService(private val token: String) {
             )
         )
 
-        sendToBot(json.encodeToString(requestBody))
+        sendToBot(urlSendMessage, json.encodeToString(requestBody))
     }
 
-    private fun sendToBot(body: String) {
+    private fun sendToBot(url: String, body: String): String {
         val request: HttpRequest = HttpRequest.newBuilder()
-            .uri(URI.create(urlSendMessage))
+            .uri(URI.create(url))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
 
-        client.send(request, HttpResponse.BodyHandlers.ofString())
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        return response.body()
     }
 
     fun downloadFile(filePath: String, fileName: String) {
@@ -328,6 +423,30 @@ fun checkNextQuestionAndSend(
     if (question == null) {
         telegramBotService.sendMessage(json, chatId, "Вы выучили все слова в базе!")
         return
+    }
+
+    val imageId = trainer.getImageFileId(question.correctAnswer.original)
+    if (imageId != null) {
+        telegramBotService.sendPhoto(
+            json = json,
+            chatId = chatId,
+            fileId = imageId,
+            hasSpoiler = true,
+        )
+    } else if (question.correctAnswer.imagePath != "") {
+        val answer = telegramBotService.sendPhoto(
+            json = json,
+            chatId = chatId,
+            file = File("imgWords/${question.correctAnswer.imagePath}"),
+            hasSpoiler = true,
+        )
+
+        if (answer != null) {
+            val images = json.decodeFromString<ImageResponse>(answer)
+            val originalImage = images.result.image.maxBy { it.fileSize }
+
+            trainer.addImgFileId(question.correctAnswer, originalImage.fileId)
+        }
     }
 
     telegramBotService.sendQuestion(json, chatId, question)

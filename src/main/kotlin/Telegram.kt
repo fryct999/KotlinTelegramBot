@@ -86,6 +86,16 @@ data class SendMessageRequest(
     val text: String,
     @SerialName("reply_markup")
     val replyMarkup: ReplyMarkup? = null,
+)
+
+@Serializable
+data class EditMessageRequest(
+    @SerialName("chat_id")
+    val chatId: Long,
+    @SerialName("text")
+    val text: String,
+    @SerialName("reply_markup")
+    val replyMarkup: ReplyMarkup? = null,
     @SerialName("message_id")
     val messageId: Long? = null,
 )
@@ -224,14 +234,14 @@ private fun HttpRequest.Builder.postMultipartFormData(
                 val path = Path.of(file.toURI())
                 val mimeType = Files.probeContentType(path)
 
-                val fileName_field = if (forEditMessage && entry.key == "file") {
+                val fileNameField = if (forEditMessage && entry.key == "file") {
                     "\"file\"; filename=\"${path.fileName}\""
                 } else {
                     "\"${entry.key}\"; filename=\"${path.fileName}\""
                 }
 
                 byteArrays.add(
-                    "$fileName_field\r\nContent-Type: $mimeType\r\n\r\n".toByteArray(
+                    "$fileNameField\r\nContent-Type: $mimeType\r\n\r\n".toByteArray(
                         StandardCharsets.UTF_8
                     )
                 )
@@ -299,7 +309,7 @@ class TelegramBotService(private val token: String) {
     }
 
     fun editMessage(json: Json, chatId: Long, messageId: Long, text: String): Boolean {
-        val requestBody = SendMessageRequest(
+        val requestBody = EditMessageRequest(
             chatId = chatId,
             text = text,
             messageId = messageId,
@@ -316,7 +326,7 @@ class TelegramBotService(private val token: String) {
     }
 
     fun editQuestion(json: Json, chatId: Long, messageId: Long, question: Question) {
-        val requestBody = SendMessageRequest(
+        val requestBody = EditMessageRequest(
             chatId = chatId,
             text = question.correctAnswer.original,
             messageId = messageId,
@@ -619,8 +629,6 @@ fun sendTextMessage(
             text = text,
             messageId = messageId,
         )
-
-        println("result: $result")
 
         if (!result) {
             dynamicMessage.messageId = telegramBotService.sendMessage(

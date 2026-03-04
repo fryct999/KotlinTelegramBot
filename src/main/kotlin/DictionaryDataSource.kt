@@ -165,7 +165,7 @@ class DatabaseUserDictionary(
         updateDictionary(wordsFile)
     }
 
-    private fun updateDictionary(fileName: File, connection: Connection? = null) {
+    private fun updateDictionary(fileName: File) {
         try {
             DriverManager.getConnection("jdbc:sqlite:$dbFileName")
                 .use { connection ->
@@ -184,7 +184,13 @@ class DatabaseUserDictionary(
                         val translate = line[1]
                         val imagePath = if (img.exists() && img.isFile) line[3] else ""
 
-                        statement.executeUpdate("insert into words values(null, '$original', '$translate', '$imagePath')")
+                        statement.executeUpdate("INSERT INTO words VALUES(null, '$original', '$translate', '$imagePath')")
+
+                        val wordIdRs = statement.executeQuery("SELECT last_insert_rowid()")
+                        wordIdRs.next()
+                        val newWordId = wordIdRs.getInt(1)
+
+                        statement.executeUpdate("INSERT INTO user_answers (user_id, word_id, correct_answer_count) SELECT id, $newWordId, 0 FROM users")
                     }
                 }
         } catch (e: IndexOutOfBoundsException) {

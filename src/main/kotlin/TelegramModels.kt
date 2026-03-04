@@ -198,3 +198,23 @@ data class EditMessageResponse(
     @SerialName("description")
     val description: String? = null,
 )
+
+@Serializable
+data class GetUserNameRequest(
+    @SerialName("chat_id")
+    val chatId: Long,
+)
+
+@Serializable
+data class ChatResponse(
+    @SerialName("result")
+    val result: ChatName?
+)
+
+@Serializable
+data class ChatName(
+    @SerialName("id")
+    val id: Long,
+    @SerialName("username")
+    val username: String?
+)

@@ -266,4 +266,12 @@ class TelegramBotService(private val token: String) {
             }
         }
     }
+
+    fun getUserName(json: Json, chatId: Long): String? {
+        val url = "$telegramBaseUrl/bot$token/getChat"
+        val responseBody = sendToBot(url, json.encodeToString(GetUserNameRequest(chatId = chatId)))
+        val response: ChatResponse = json.decodeFromString<ChatResponse>(responseBody)
+
+        return response.result?.username
+    }
 }

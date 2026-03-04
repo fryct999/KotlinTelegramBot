@@ -23,17 +23,24 @@ data class Image(
 
 class LearnWordsTrainer(
     private val wordsFileName: String = "words.txt",
-    private val countOfQuestionWords: Int = 4
+    private val countOfQuestionWords: Int = 4,
+    private val chatId: Long,
+    private val username: String,
 ) {
     init {
         val wordsFile = File(wordsFileName)
-        if (!wordsFile.exists()) {
+        if (!wordsFile.exists())
             File("words.txt").copyTo(wordsFile)
-        }
     }
 
-    val userDictionary = DictionaryWithDatabase(DB_NAME, wordsFileName.removeSuffix(".txt"), MIN_CORRECT_ANSWER)
-    //val userDictionary = DictionaryWithFile(wordsFileName, MIN_CORRECT_ANSWER)
+    val userDictionary = DatabaseUserDictionary(
+        dbFileName = DB_NAME,
+        chatId = chatId,
+        username = username,
+        learnedAnswerCount = MIN_CORRECT_ANSWER
+    )
+
+    //val userDictionary = FileUserDictionary(wordsFileName, MIN_CORRECT_ANSWER)
     var question: Question? = null
         private set
 

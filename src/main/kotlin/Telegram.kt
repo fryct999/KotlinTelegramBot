@@ -62,7 +62,14 @@ fun handleUpdate(
     usersDynamicMessageList: MutableMap<Long, DynamicMessage>,
 ) {
     val chatId = update.message?.chat?.id ?: update.callBackQuery?.message?.chat?.id ?: return
-    val trainer = trainers.getOrPut(chatId) { LearnWordsTrainer("$chatId.txt", WORDS_PER_QUESTION) }
+    val trainer = trainers.getOrPut(chatId) {
+        LearnWordsTrainer(
+            wordsFileName = "$chatId.txt",
+            countOfQuestionWords = WORDS_PER_QUESTION,
+            chatId = chatId,
+            username = telegramBotService.getUserName(json, chatId) ?: ""
+        )
+    }
     val dynamicMessage: DynamicMessage = usersDynamicMessageList.getOrPut(chatId) { DynamicMessage() }
 
     if (update.message?.document != null) {

@@ -1,15 +1,9 @@
 ﻿package fryct999
 
-import kotlinx.serialization.Serializable
 import java.io.File
 
-@Serializable
-data class Word(
-    val original: String,
-    val translate: String,
-    var correctAnswersCount: Int = 0,
-    val imagePath: String,
-)
+const val DB_NAME = "data.db"
+const val MIN_CORRECT_ANSWER = 3
 
 data class Statistics(
     val totalCount: Int,
@@ -28,30 +22,44 @@ data class Image(
 )
 
 class LearnWordsTrainer(
-    private val fileName: String = "words.txt",
-    private val learnedAnswerCount: Int = 3,
-    private val countOfQuestionWords: Int = 4
+    private val wordsFileName: String = "words.txt",
+    private val countOfQuestionWords: Int = 4,
+    private val chatId: Long,
+    private val username: String,
 ) {
+    init {
+        val wordsFile = File(wordsFileName)
+        if (!wordsFile.exists())
+            File("words.txt").copyTo(wordsFile)
+    }
+
+    val userDictionary = DatabaseUserDictionary(
+        dbFileName = DB_NAME,
+        chatId = chatId,
+        username = username,
+        learnedAnswerCount = MIN_CORRECT_ANSWER
+    )
+
+    //val userDictionary = FileUserDictionary(wordsFileName, MIN_CORRECT_ANSWER)
     var question: Question? = null
         private set
 
     private val imageId = createImageIdList()
-    private val dictionary = readWordsFile(fileName)
 
     fun getStatistics(): Statistics {
-        val totalCount = dictionary.size
-        val learnedCount = dictionary.filter { it.correctAnswersCount >= learnedAnswerCount }.size
+        val totalCount = userDictionary.getSize()
+        val learnedCount = userDictionary.getNumOfLearnedWords()
         val learnedPercent = if (totalCount != 0) ((learnedCount.toDouble() / totalCount) * 100).toInt() else 100
 
         return Statistics(totalCount, learnedCount, learnedPercent)
     }
 
     fun getNextQuestion(): Question? {
-        val notLearnedList = dictionary.filter { it.correctAnswersCount < learnedAnswerCount }
+        val notLearnedList = userDictionary.getUnlearnedWords()
         if (notLearnedList.isEmpty()) return null
 
         val questionWords = if (notLearnedList.size < countOfQuestionWords) {
-            val learnedList = dictionary.filter { it.correctAnswersCount >= learnedAnswerCount }.shuffled()
+            val learnedList = userDictionary.getLearnedWords()
             notLearnedList.shuffled().take(countOfQuestionWords) +
                     learnedList.take(countOfQuestionWords - notLearnedList.size)
         } else {
@@ -73,7 +81,7 @@ class LearnWordsTrainer(
             val correctAnswerId = it.variants.indexOf(it.correctAnswer)
             if (correctAnswerId == userAnswerIndex) {
                 it.correctAnswer.correctAnswersCount++
-                saveDictionary()
+                userDictionary.setCorrectAnswersCount(it.correctAnswer.original, it.correctAnswer.correctAnswersCount)
                 true
             } else false
         } ?: false
@@ -105,55 +113,12 @@ class LearnWordsTrainer(
         return list
     }
 
-    private fun readWordsFile(fileName: String): MutableList<Word> {
-        try {
-            val dictionaryFile = File(fileName)
-            if (!dictionaryFile.exists()) {
-                File("words.txt").copyTo(dictionaryFile)
-            }
+    fun addNewWord(fileName: String) {
+        val file = File(fileName)
+        if (!file.exists())
+            return
 
-            val dictionary = mutableListOf<Word>()
-            val dictionaryLines = dictionaryFile.readLines()
-            for (dictionaryLine in dictionaryLines) {
-                val line = dictionaryLine.split("|")
-                if (line.size != 4) {
-                    println("Не корректная строка.")
-                    continue
-                }
-
-                val img = File("imgWords/${line[3]}")
-                val word = Word(
-                    original = line[0],
-                    translate = line[1],
-                    correctAnswersCount = line.getOrNull(2)?.toIntOrNull() ?: 0,
-                    imagePath = if (img.exists() && img.isFile) line[3] else "",
-                )
-
-                dictionary.add(word)
-            }
-
-            return dictionary
-        } catch (e: IndexOutOfBoundsException) {
-            throw IllegalStateException("Некорректный файл")
-        }
-    }
-
-    private fun saveDictionary() {
-        val dictionaryFile = File(fileName)
-        dictionaryFile.writeText(dictionary.joinToString(separator = "") { "${it.original}|${it.translate}|${it.correctAnswersCount}|${it.imagePath}\n" })
-    }
-
-    fun resetProgress() {
-        dictionary.forEach { it.correctAnswersCount = 0 }
-        saveDictionary()
-    }
-
-    fun addNewWords(fileName: String) {
-        val newWords = readWordsFile(fileName)
-        if (newWords.isNotEmpty()) {
-            dictionary.addAll(newWords)
-            saveDictionary()
-        }
+        userDictionary.addNewWord(fileName)
     }
 
     fun getImageFileId(word: String): String? {
@@ -175,6 +140,10 @@ class LearnWordsTrainer(
         }
 
         saveImageIdFile()
+    }
+
+    fun resetProgress() {
+        userDictionary.resetUserProgress()
     }
 
     private fun saveImageIdFile() {

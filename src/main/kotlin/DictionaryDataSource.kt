@@ -4,6 +4,8 @@ import kotlinx.serialization.Serializable
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.Statement
+import java.util.logging.Logger
 
 @Serializable
 data class Word(
@@ -29,6 +31,8 @@ class DatabaseUserDictionary(
     private val username: String,
     private val learnedAnswerCount: Int = 3,
 ) : IUserDictionary {
+    private val logger = Logger.getLogger(DatabaseUserDictionary::class.java.name)
+
     init {
         initTables()
         val wordCount = getWordCount()
@@ -40,16 +44,16 @@ class DatabaseUserDictionary(
     }
 
     override fun getNumOfLearnedWords(): Int {
-        val userId = getUserId()
-
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                val resultStatement = statement.executeQuery(
-                    "SELECT COUNT(*) FROM 'user_answers' WHERE correct_answer_count >= $learnedAnswerCount AND user_id = $userId"
-                )
-                resultStatement.next()
-                return resultStatement.getInt(1)
+                val userId = getUserId(connection)
+                val sql = "SELECT COUNT(*) FROM 'user_answers' WHERE correct_answer_count >= ? AND user_id = ?"
+                val preparedStatement = connection.prepareStatement(sql)
+                preparedStatement.setInt(1, learnedAnswerCount)
+                preparedStatement.setLong(2, userId)
+                val result = preparedStatement.executeQuery()
+                result.next()
+                return result.getInt(1)
             }
     }
 
@@ -66,19 +70,19 @@ class DatabaseUserDictionary(
     }
 
     override fun getLearnedWords(): List<Word> {
-        val userId = getUserId()
-
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                val resultStatement = statement.executeQuery(
-                    """
+                val userId = getUserId(connection)
+                val sql = """
                         SELECT words.*, user_answers.correct_answer_count FROM 'words'
                         JOIN 'user_answers' ON words.id = user_answers.word_id
-                        WHERE user_answers.user_id = $userId
-                        AND user_answers.correct_answer_count >= $learnedAnswerCount
+                        WHERE user_answers.user_id = ?
+                        AND user_answers.correct_answer_count >= ?
                     """.trimIndent()
-                )
+                val preparedStatement = connection.prepareStatement(sql)
+                preparedStatement.setLong(1, userId)
+                preparedStatement.setInt(2, learnedAnswerCount)
+                val resultStatement = preparedStatement.executeQuery()
 
                 val list = mutableListOf<Word>()
                 while (resultStatement.next()) {
@@ -97,19 +101,19 @@ class DatabaseUserDictionary(
     }
 
     override fun getUnlearnedWords(): List<Word> {
-        val userId = getUserId()
-
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                val resultStatement = statement.executeQuery(
-                    """
+                val userId = getUserId(connection)
+                val sql = """
                         SELECT words.*, user_answers.correct_answer_count FROM 'words'
                         JOIN 'user_answers' ON words.id = user_answers.word_id
-                        WHERE user_answers.user_id = $userId
-                        AND user_answers.correct_answer_count < $learnedAnswerCount
+                        WHERE user_answers.user_id = ?
+                        AND user_answers.correct_answer_count < ?
                     """.trimIndent()
-                )
+                val preparedStatement = connection.prepareStatement(sql)
+                preparedStatement.setLong(1, userId)
+                preparedStatement.setInt(2, learnedAnswerCount)
+                val resultStatement = preparedStatement.executeQuery()
 
                 val list = mutableListOf<Word>()
                 while (resultStatement.next()) {
@@ -128,39 +132,62 @@ class DatabaseUserDictionary(
     }
 
     override fun setCorrectAnswersCount(word: String, correctAnswersCount: Int) {
-        val userId = getUserId()
+        if (correctAnswersCount !in 0..learnedAnswerCount) {
+            logSuspiciousActivity("Кол-во верных ответов за рамками диапозона от 0 до $learnedAnswerCount. Получено: $correctAnswersCount.")
+            throw IllegalArgumentException("correctAnswersCount must be between 0 and $learnedAnswerCount")
+        }
 
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                val wordIdStatement = statement.executeQuery(
-                    "SELECT id FROM 'words' WHERE text = '$word'"
-                )
+                val userId = getUserId(connection)
+                val sqlWord = "SELECT id FROM 'words' WHERE text = ?"
+                val preparedStatementWord = connection.prepareStatement(sqlWord)
+                preparedStatementWord.setString(1, word)
+                val wordIdStatement = preparedStatementWord.executeQuery()
+
                 wordIdStatement.next()
                 val wordId = wordIdStatement.getInt(1)
 
-                statement.executeUpdate(
-                    "UPDATE 'user_answers' SET correct_answer_count = $correctAnswersCount, update_at = CURRENT_TIMESTAMP WHERE user_id = $userId AND word_id = $wordId"
-                )
+                val sqlWordId =
+                    "UPDATE 'user_answers' SET correct_answer_count = ?, update_at = CURRENT_TIMESTAMP WHERE user_id = ? AND word_id = ?"
+                val preparedStatementWordId = connection.prepareStatement(sqlWordId)
+                preparedStatementWordId.setInt(1, correctAnswersCount)
+                preparedStatementWordId.setLong(2, userId)
+                preparedStatementWordId.setInt(3, wordId)
+                preparedStatementWordId.executeUpdate()
             }
     }
 
     override fun resetUserProgress() {
-        val userId = getUserId()
-
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                statement.executeUpdate(
-                    "UPDATE 'user_answers' SET correct_answer_count = 0, update_at = CURRENT_TIMESTAMP WHERE user_id = $userId"
-                )
+                val userId = getUserId(connection)
+                val sql =
+                    "UPDATE 'user_answers' SET correct_answer_count = ?, update_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+                val preparedStatement = connection.prepareStatement(sql)
+                preparedStatement.setInt(1, 0)
+                preparedStatement.setLong(2, userId)
+                preparedStatement.executeUpdate()
             }
     }
 
     override fun addNewWord(fileName: String) {
+        if (fileName.isEmpty()) {
+            logSuspiciousActivity("Пустое имя файла")
+            throw IllegalArgumentException("file name cannot be empty")
+        }
+
+        if (!fileName.endsWith(".txt")) {
+            logSuspiciousActivity("Не корректный формат файла: $fileName")
+            throw IllegalArgumentException("wrong file format")
+        }
+
+
         val wordsFile = File(fileName)
-        if (!wordsFile.exists())
-            return
+        if (!wordsFile.exists()) {
+            logSuspiciousActivity("Файла не существует: $fileName")
+            throw IllegalArgumentException("file not exists")
+        }
 
         updateDictionary(wordsFile)
     }
@@ -169,9 +196,17 @@ class DatabaseUserDictionary(
         try {
             DriverManager.getConnection("jdbc:sqlite:$dbFileName")
                 .use { connection ->
-                    val statement = connection.createStatement()
-
                     val wordsLines = fileName.readLines()
+
+                    val sqlAddWord = "INSERT INTO words VALUES(null, ?, ?, ?)"
+                    val preparedStatementAddWord = connection.prepareStatement(
+                        sqlAddWord,
+                        Statement.RETURN_GENERATED_KEYS
+                    )
+                    val sqlUpdateToUsers =
+                        "INSERT INTO user_answers (user_id, word_id, correct_answer_count) SELECT id, ?, 0 FROM users"
+                    val preparedStatementUpdateToUsers = connection.prepareStatement(sqlUpdateToUsers)
+
                     for (wordLine in wordsLines) {
                         val line = wordLine.split("|")
                         if (line.size != 4) {
@@ -184,13 +219,17 @@ class DatabaseUserDictionary(
                         val translate = line[1]
                         val imagePath = if (img.exists() && img.isFile) line[3] else ""
 
-                        statement.executeUpdate("INSERT INTO words VALUES(null, '$original', '$translate', '$imagePath')")
+                        preparedStatementAddWord.setString(1, original)
+                        preparedStatementAddWord.setString(2, translate)
+                        preparedStatementAddWord.setString(3, imagePath)
+                        preparedStatementAddWord.executeUpdate()
 
-                        val wordIdRs = statement.executeQuery("SELECT last_insert_rowid()")
-                        wordIdRs.next()
-                        val newWordId = wordIdRs.getInt(1)
+                        val generatedKeys = preparedStatementAddWord.generatedKeys
+                        generatedKeys.next()
+                        val newWordId = generatedKeys.getInt(1)
 
-                        statement.executeUpdate("INSERT INTO user_answers (user_id, word_id, correct_answer_count) SELECT id, $newWordId, 0 FROM users")
+                        preparedStatementUpdateToUsers.setInt(1, newWordId)
+                        preparedStatementUpdateToUsers.executeUpdate()
                     }
                 }
         } catch (e: IndexOutOfBoundsException) {
@@ -253,39 +292,51 @@ class DatabaseUserDictionary(
     private fun addUserIfNotExists() {
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
+                val sqlUserExist = "SELECT id FROM 'users' WHERE chat_id = ?"
+                val preparedStatementUserExist = connection.prepareStatement(sqlUserExist)
+                preparedStatementUserExist.setLong(1, chatId)
+                val resultUserExistStatement = preparedStatementUserExist.executeQuery()
 
-                val userExistStatement = statement.executeQuery(
-                    "SELECT id FROM 'users' WHERE chat_id = $chatId"
-                )
+                if (!resultUserExistStatement.next()) {
+                    val sqlUserInsert =
+                        "INSERT INTO 'users' (username, chat_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)"
+                    val preparedStatementUserInsert = connection.prepareStatement(sqlUserInsert)
+                    preparedStatementUserInsert.setString(1, username)
+                    preparedStatementUserInsert.setLong(2, chatId)
+                    preparedStatementUserInsert.executeUpdate()
 
-                if (!userExistStatement.next()) {
-                    statement.executeUpdate(
-                        "INSERT INTO 'users' (username, chat_id, created_at) VALUES ('$username', $chatId, CURRENT_TIMESTAMP)"
-                    )
+                    val sqlUserIdStatement = "SELECT id FROM 'users' WHERE chat_id = ?"
+                    val preparedStatementUserId = connection.prepareStatement(sqlUserIdStatement)
+                    preparedStatementUserId.setLong(1, chatId)
+                    val resultUserIdStatement = preparedStatementUserId.executeQuery()
 
-                    val userIdStatement = statement.executeQuery(
-                        "SELECT id FROM 'users' WHERE chat_id = $chatId"
-                    )
-                    userIdStatement.next()
-                    val userId = userIdStatement.getInt(1)
+                    resultUserIdStatement.next()
+                    val userId = resultUserIdStatement.getInt(1)
 
-                    statement.executeUpdate(
-                        "INSERT INTO 'user_answers' (user_id, word_id, correct_answer_count) SELECT $userId, id, 0 FROM 'words'"
-                    )
+                    val sqlUsersAnswerInsert =
+                        "INSERT INTO 'user_answers' (user_id, word_id, correct_answer_count) SELECT ?, id, ? FROM 'words'"
+                    val preparedStatementUsersAnswerInsert = connection.prepareStatement(sqlUsersAnswerInsert)
+                    preparedStatementUsersAnswerInsert.setInt(1, userId)
+                    preparedStatementUsersAnswerInsert.setInt(2, 0)
+                    preparedStatementUsersAnswerInsert.executeUpdate()
                 }
             }
     }
 
-    private fun getUserId(): Long {
+    private fun getUserId(connection: Connection): Long {
+        val sql = "SELECT id FROM 'users' WHERE chat_id = ?"
+        val preparedStatement = connection.prepareStatement(sql)
+        preparedStatement.setLong(1, chatId)
+        val result = preparedStatement.executeQuery()
+        result.next()
+        return result.getLong("id")
+    }
+
+    private fun logSuspiciousActivity(message: String) {
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
-                val statement = connection.createStatement()
-                val userIdStatemen = statement.executeQuery(
-                    "SELECT id FROM 'users' WHERE chat_id = $chatId"
-                )
-                userIdStatemen.next()
-                return userIdStatemen.getLong("id")
+                val userId = getUserId(connection)
+                logger.warning("Пользователь: $userId. $message")
             }
     }
 }

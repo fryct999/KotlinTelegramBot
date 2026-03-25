@@ -10,12 +10,12 @@ class QuestionExtensionTest {
     fun `asConsoleString with 4 variants should format correctly`() {
         val question = Question(
             variants = listOf(
-                Word("hello", "привет"),
-                Word("world", "мир"),
-                Word("cat", "кот"),
-                Word("dog", "собака")
+                Word("hello", "привет", 1, ""),
+                Word("world", "мир", 1, ""),
+                Word("cat", "кот", 1, ""),
+                Word("dog", "собака", 1, "")
             ),
-            correctAnswer = Word("hello", "привет")
+            correctAnswer = Word("hello", "привет", 1, "")
         )
 
         val expected = """
@@ -33,15 +33,15 @@ class QuestionExtensionTest {
     @Test
     fun `asConsoleString with different order should maintain indices`() {
         val variants = listOf(
-            Word("hello", "привет"),
-            Word("world", "мир"),
-            Word("cat", "кот"),
-            Word("dog", "собака")
+            Word("hello", "привет", 1, ""),
+            Word("world", "мир", 1, ""),
+            Word("cat", "кот", 1, ""),
+            Word("dog", "собака", 1, "")
         )
 
         val question = Question(
             variants = variants.shuffled(),
-            correctAnswer = Word("hello", "привет")
+            correctAnswer = Word("hello", "привет", 1, "")
         )
 
         val result = question.asConsoleString()
@@ -56,7 +56,7 @@ class QuestionExtensionTest {
     fun `asConsoleString with empty list should show only original and menu`() {
         val question = Question(
             variants = emptyList(),
-            correctAnswer = Word("test", "тест")
+            correctAnswer = Word("test", "тест", 1, "")
         )
 
         val expected = "test\n" + "\n ---------- \n0 - Меню"
@@ -67,12 +67,12 @@ class QuestionExtensionTest {
     @Test
     fun `asConsoleString with 10 variants should show all indices`() {
         val variants = (1..10).map {
-            Word("word$it", "перевод$it")
+            Word("word$it", "перевод$it", 1, "")
         }
 
         val question = Question(
             variants = variants,
-            correctAnswer = Word("original", "оригинал")
+            correctAnswer = Word("original", "оригинал", 1, "")
         )
 
         val result = question.asConsoleString()
@@ -87,12 +87,12 @@ class QuestionExtensionTest {
     @Test
     fun `asConsoleString with 200 variants should display 10 options`() {
         val variants = (1..200).map {
-            Word("word$it", "translate$it")
+            Word("word$it", "translate$it", 1, "")
         }
 
         val question = Question(
             variants = variants,
-            correctAnswer = Word("correct", "верный")
+            correctAnswer = Word("correct", "верный", 1, "")
         )
 
         val result = question.asConsoleString()
@@ -118,14 +118,14 @@ class QuestionExtensionTest {
     fun `asConsoleString with special characters should handle them correctly`() {
         val question = Question(
             variants = listOf(
-                Word("test", "перевод (со скобками)"),
-                Word("another", "перевод, с запятыми"),
-                Word("third", "перевод|с|палочками"),
-                Word("fourth", "перевод.с.точками"),
-                Word("fifth", "перевод\\с\\обратными\\слешами"),
-                Word("sixth", "перевод\"в\"кавычках"),
+                Word("test", "перевод (со скобками)", 1, ""),
+                Word("another", "перевод, с запятыми", 1, ""),
+                Word("third", "перевод|с|палочками", 1, ""),
+                Word("fourth", "перевод.с.точками", 1, ""),
+                Word("fifth", "перевод\\с\\обратными\\слешами", 1, ""),
+                Word("sixth", "перевод\"в\"кавычках", 1, ""),
             ),
-            correctAnswer = Word("test", "перевод")
+            correctAnswer = Word("test", "перевод", 1, "")
         )
 
         val result = question.asConsoleString()
@@ -139,12 +139,12 @@ class QuestionExtensionTest {
     fun `asConsoleString with whitespace words should display them`() {
         val question = Question(
             variants = listOf(
-                Word("   ", "пробелы"),
-                Word("\t\t", "табуляция"),
-                Word("\n\n", "переносы"),
-                Word("  test  ", "  тест  ")
+                Word("   ", "пробелы", 1, ""),
+                Word("\t\t", "табуляция", 1, ""),
+                Word("\n\n", "переносы", 1, ""),
+                Word("  test  ", "  тест  ", 1, "")
             ),
-            correctAnswer = Word("   ", "пробелы")
+            correctAnswer = Word("   ", "пробелы", 1, "")
         )
 
         val result = question.asConsoleString()

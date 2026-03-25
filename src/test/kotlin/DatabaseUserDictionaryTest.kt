@@ -40,6 +40,11 @@ class DatabaseUserDictionaryTest {
     }
 
     @Test
+    fun setCorrectAnswersCountSqlInjection() {
+        databaseUserDictionary.setCorrectAnswersCount("' OR '1'='1", 0)
+    }
+
+    @Test
     fun addNewWordEmpty() {
         assertFailsWith<IllegalArgumentException> {
             databaseUserDictionary.addNewWord("")
@@ -63,5 +68,12 @@ class DatabaseUserDictionaryTest {
     @Test
     fun addNewWordCorrectFile() {
         databaseUserDictionary.addNewWord("words.txt")
+    }
+
+    @Test
+    fun addNewWordSqlInjection() {
+        assertFailsWith<IllegalArgumentException> {
+            databaseUserDictionary.addNewWord("'; DROP TABLE words; --")
+        }
     }
 }

@@ -7,6 +7,8 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.util.logging.Logger
 
+const val MAX_LENGTH = 12
+
 @Serializable
 data class Word(
     val original: String,
@@ -137,12 +139,16 @@ class DatabaseUserDictionary(
             throw IllegalArgumentException("correctAnswersCount must be between 0 and $learnedAnswerCount")
         }
 
+        val trim = word.trim()
+
+        validateInput(trim)
+
         DriverManager.getConnection("jdbc:sqlite:$dbFileName")
             .use { connection ->
                 val userId = getUserId(connection)
                 val sqlWord = "SELECT id FROM 'words' WHERE text = ?"
                 val preparedStatementWord = connection.prepareStatement(sqlWord)
-                preparedStatementWord.setString(1, word)
+                preparedStatementWord.setString(1, trim)
                 val wordIdStatement = preparedStatementWord.executeQuery()
 
                 wordIdStatement.next()
@@ -172,20 +178,22 @@ class DatabaseUserDictionary(
     }
 
     override fun addNewWord(fileName: String) {
-        if (fileName.isEmpty()) {
+        val trim = fileName.trim()
+        if (trim.isEmpty()) {
             logSuspiciousActivity("Пустое имя файла")
             throw IllegalArgumentException("file name cannot be empty")
         }
 
-        if (!fileName.endsWith(".txt")) {
-            logSuspiciousActivity("Не корректный формат файла: $fileName")
+        validateInput(trim)
+
+        if (!trim.endsWith(".txt")) {
+            logSuspiciousActivity("Не корректный формат файла: $trim")
             throw IllegalArgumentException("wrong file format")
         }
 
-
-        val wordsFile = File(fileName)
+        val wordsFile = File(trim)
         if (!wordsFile.exists()) {
-            logSuspiciousActivity("Файла не существует: $fileName")
+            logSuspiciousActivity("Файла не существует: $trim")
             throw IllegalArgumentException("file not exists")
         }
 
@@ -338,6 +346,19 @@ class DatabaseUserDictionary(
                 val userId = getUserId(connection)
                 logger.warning("Пользователь: $userId. $message")
             }
+    }
+
+    private fun validateInput(input: String) {
+        val regex = Regex("union|select|drop|delete|--|/\\*", RegexOption.IGNORE_CASE)
+
+        require(input.length <= MAX_LENGTH) {
+            logSuspiciousActivity("Строка превышает максимум: $input")
+            "Строка превышает максимум: $input"
+        }
+        require(!regex.containsMatchIn(input)) {
+            logSuspiciousActivity("Не корретные данные: $input")
+            "Не корретные данные: $input"
+        }
     }
 }
 

@@ -41,7 +41,7 @@ class DatabaseUserDictionaryTest {
 
     @Test
     fun setCorrectAnswersCountSqlInjection() {
-        databaseUserDictionary.setCorrectAnswersCount("' OR '1'='1", 0)
+        assertFailsWith<IllegalArgumentException> { databaseUserDictionary.setCorrectAnswersCount("UNION SELECT * FROM users", 0) }
     }
 
     @Test

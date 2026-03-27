@@ -7,7 +7,7 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.util.logging.Logger
 
-const val MAX_LENGTH = 12
+const val MAX_LENGTH = 255
 
 @Serializable
 data class Word(
@@ -349,7 +349,7 @@ class DatabaseUserDictionary(
     }
 
     private fun validateInput(input: String) {
-        val regex = Regex("union|select|drop|delete|--|/\\*", RegexOption.IGNORE_CASE)
+        val regex = Regex("union|select|insert|update|drop|delete|--|/\\*", RegexOption.IGNORE_CASE)
 
         require(input.length <= MAX_LENGTH) {
             logSuspiciousActivity("Строка превышает максимум: $input")
